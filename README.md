@@ -1,6 +1,8 @@
 # QcSdkUnityBridgeSwift
 
-QC 海外 iOS SDK 的 Unity iOS Swift 桥接模块，以预编译静态 XCFramework 通过 Swift Package Manager（SPM）分发，不提供业务实现源码。
+> `2.0.0-beta.1` 为动态 XCFramework 测试版。主 App 与直接调用 SDK 的 Framework 关联同一中间件，App 负责嵌入签名。此前 1.x 静态版本保持不变，不使用本版动态接入布局。
+
+QC 海外 iOS SDK 的 Unity iOS Swift 桥接模块，以预编译 XCFramework 通过 Swift Package Manager（SPM）分发，不提供业务实现源码。
 
 ## 环境要求
 
@@ -19,6 +21,8 @@ QC 海外 iOS SDK 的 Unity iOS Swift 桥接模块，以预编译静态 XCFramew
 
 ## 在 Xcode 中集成
 
+以下针对新动态分发版本。直接使用此独立包时，同时选择 `QcSdkUnityBridgeSwift` 与 `QcSdkUnityBridgeSwiftDependencies` 产品；使用 CreateIntegration 生成的中间件会自动包含两者。UnityFramework 等直接调用方也关联同一中间件，主 App 负责嵌入签名。旧静态版本继续按其发布时的 README 接入。
+
 1. 选择 **File → Add Package Dependencies…**，输入：
 
    ```text
@@ -26,11 +30,11 @@ QC 海外 iOS SDK 的 Unity iOS Swift 桥接模块，以预编译静态 XCFramew
    ```
 
 2. 在本仓库 Releases 中选择所需的已发布版本，Dependency Rule 使用 **Exact Version**。
-3. 选择 **QcSdkUnityBridgeSwift** 产品，将 Add to Target 设为实际使用 SDK 的 App Target；Unity 通常为 `UnityFramework`。
-4. 在该 Target 的 **Build Settings → Other Linker Flags** 保留原有值并添加：
+3. 选择 **QcSdkUnityBridgeSwift** 产品，将 Add to Target 设为主 App Target；通过中间件接入 Unity 时为 `Unity-iPhone`。
+4. 在该 Target 的 **Build Settings → Other Linker Flags** 保留继承值（动态 SDK 不要求宿主新增 -ObjC）：
 
    ```text
-   $(inherited) -ObjC
+   $(inherited)
    ```
 
 5. 确认最低部署版本为 iOS 17.0 或以上，编译并运行。
@@ -50,13 +54,13 @@ precondition(NSClassFromString("QcSdkUnityBridge") != nil)
 precondition(NSClassFromString("QcUnityAppControllerManager") != nil)
 ```
 
-`-ObjC` 缺失可能使只通过类名访问的实现被裁掉。业务通过 SDK 公开入口调用，不直接依赖内部实现类；通过编译和反射检查后，仍需完成本模块配置及业务联调。
+动态版本在自身构建阶段保留反射实现，宿主无需为其新增 -ObjC。业务通过 SDK 公开入口调用，不直接依赖内部实现类；通过编译和反射检查后，仍需完成本模块配置及业务联调。
 
 ## Unity 宿主接入
 
 本模块提供 Swift / Objective-C 可调用的 Unity 桥接及生命周期代理入口，依赖 Core。Unity 侧 C# / Objective-C++ 胶水代码由宿主工程按现有桥接契约接入；仅添加这个 SPM 产品不会自动生成 Unity 侧代码。
 
-1. 在导出的 Xcode 工程中，把产品添加到实际链接 SDK 的 Target，通常为 `UnityFramework`；在该 Target 添加 `$(inherited) -ObjC`。
+1. 在导出的 Xcode 工程中，通过 InstallIntegration 将中间件关联到主 App 与 UnityFramework，保持原有桥接源码。
 2. 将 App 启动、URL 回跳及 Unity 启动等对应生命周期交给既有 `QcUnityAppControllerManager.shared` 入口；不要让多条转发链重复初始化 Core。
 3. 通过现有 `QcSdkUnityBridge` 协议入口发送 Unity 命令，并正确注册 iOS → Unity 回调。回调注册前的缓存机制不替代宿主正确绑定监听器。
 4. 有自定义代理时，在宿主 Info.plist 的 `QcUnityAppControllerProxyClass` 配置真实可反射的完整类名，并链接包含该类的产品；未配置时按实现回退默认代理。
@@ -94,10 +98,12 @@ Xcode 左侧未显示 XCFramework 不代表下载失败，文件通常位于工�
 
 ## 注意事项
 
-- 自有 SDK 为静态链接，不重复同时集成手动 Framework 和 SPM 产品，不手工将自有静态 Framework 设置为 Embed & Sign。第三方若含动态依赖，由最终 App 正常嵌入和签名。
+- 自有 SDK 为动态链接，主 App 统一嵌入签名；直接调用方关联相同产品，共用实现。不要同时手动集成同一 Framework 与 SPM 产品。
 - 包解析与反射检查不代表业务验收完成；仍需验证Unity 消息收发、生命周期及初始化回调。
 - SDK 的资源和公开 `.swiftinterface` / Objective-C 头文件可以查看，但不包含业务实现源码。
 - 不将 Client Secret、服务端密钥、授权 token 或内部日志提交到公开仓库。
 - Core 通用集成和业务配置另见 [QcSdkCore README](https://github.com/YuFengChen77/QcSdkCore#readme)。
 
 本文件在开发仓库的 `QcSdkUnityBridgeSwift/README.md` 维护，生成分发包时自动复制；依赖声明仍以根 `Package.swift` 和本次发布清单为准。
+
+新动态分发目录还含 `QcSdkUnityBridgeSwift/DependencySources/Dependencies.swift`，仅声明无业务标记，用于由官方 SPM 构建动态依赖容器。自有资源由该容器生成资源 bundle，避免 App 与 UnityFramework 重复定义资源访问器。
